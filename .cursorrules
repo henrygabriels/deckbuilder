@@ -1,0 +1,577 @@
+# Cursor Rules for Waifu Deckbuilder
+
+# Error Handling Guidelines
+errors:
+  - rule: "Holistic Error Resolution"
+    description: "When encountering an error, search for and fix all similar instances across the codebase. Common patterns:"
+    patterns:
+      - "Method call syntax (static vs instance methods)"
+      - "Null/nil value checks"
+      - "Type mismatches"
+      - "Resource loading failures"
+    example: |
+      If encountering "attempt to call method 'x' (a nil value)":
+      1. Check initialization of the object
+      2. Search for all similar method calls
+      3. Verify static vs instance method usage
+      4. Add appropriate nil checks if needed
+
+  - rule: "Method Call Patterns"
+    description: "Use correct method call syntax based on method type:"
+    patterns:
+      - "Instance methods: object:method(args)"
+      - "Static/utility methods: Class.method(args)"
+      - "Constructor: Class.new()"
+    example: |
+      -- Instance method (requires object state)
+      corruption:getMultiplier(suit)
+      corruption:trackHand(hand)
+      
+      -- Static/utility method (no object state needed)
+      Corruption.getLevel(value)
+      
+      -- Constructor
+      Corruption.new()
+
+# Game Mechanics (Balatro-style)
+mechanics:
+  - name: "Hand Management"
+    description: "Players get a limited number of hands per round (starts at 3). Each played or discarded hand counts against this limit."
+  
+  - name: "Deck System"
+    description: "52-card deck that refreshes each round. Cards can be played or discarded. All cards return to deck at round start."
+  
+  - name: "Round Structure"
+    description: "Each round starts with fresh deck. Round ends when hand limit reached. Level up grants +1 hand per round."
+  
+  - name: "Card Actions"
+    description: |
+      - Left-click to select/deselect a card
+      - Click "Play Hand" button or press SPACE to play current hand
+      - Click "Discard" button or press D to discard selected card
+      - Buttons are disabled when action is invalid
+      - Visual feedback shows when actions are available
+
+# File Organization
+organize:
+  - pattern: "src/cards/*.lua"
+    group: "Card System"
+    description: "Card-related modules including base cards, modifiers, and deck management"
+    conventions:
+      - "Use instance methods for card state manipulation"
+      - "Use static methods for utility functions"
+  
+  - pattern: "src/modifiers/*.lua"
+    group: "Card Modifiers"
+    description: "Special modifier cards that enhance or transform base cards"
+    conventions:
+      - "Use instance methods for modifier effects"
+      - "Use static methods for modifier creation"
+  
+  - pattern: "src/states/*.lua"
+    group: "Game States"
+    description: "State management modules for menu, game, and pause states"
+    conventions:
+      - "Initialize all required state in new()"
+      - "Use instance methods for state manipulation"
+  
+  - pattern: "src/ui/*.lua"
+    group: "UI Components"
+    description: "User interface components and layouts"
+    conventions:
+      - "Use static methods for pure rendering functions"
+      - "Pass state objects explicitly"
+  
+  - pattern: "src/assets/**/*"
+    group: "Assets"
+    description: "Game assets including images, fonts, and sounds"
+
+  - pattern: "src/waifu/*.lua"
+    group: "Waifu System"
+    description: "Waifu state management and corruption system"
+    conventions:
+      - "Use instance methods for state changes"
+      - "Use static methods for pure calculations"
+      - "Initialize all state in new()"
+
+  - pattern: "src/audio/*.lua"
+    group: "Audio System"
+    description: "Sound effects and music management"
+
+# Required Imports
+imports:
+  - file: "src/cards/card.lua"
+    requires: []
+    description: "Base card module, no dependencies"
+
+  - file: "src/cards/deck.lua"
+    requires: ["src.cards.card"]
+    description: "Deck management, handles card states (draw pile, hand, played, discarded)"
+
+  - file: "src/cards/effects.lua"
+    requires: ["src.cards.card"]
+    description: "Card modifiers and effects, requires Card for type checking"
+
+  - file: "src/waifu/corruption.lua"
+    requires: ["src.cards.card"]
+    description: "Corruption system, requires Card for suit types"
+
+  - file: "src/ui/basic_ui.lua"
+    requires: ["src.cards.card", "src.waifu.corruption"]
+    description: "UI components, requires Card for suits and Corruption for level display"
+
+  - file: "src/states/game.lua"
+    requires: [
+      "src.cards.deck",
+      "src.cards.effects",
+      "src.waifu.corruption",
+      "src.ui.basic_ui",
+      "src.audio.basic_audio"
+    ]
+    description: "Main game state, requires all major systems"
+
+  - file: "src/audio/basic_audio.lua"
+    requires: ["love.audio"]
+    description: "Audio system, requires LÖVE audio module"
+
+# Method Call Conventions
+methods:
+  - pattern: "instance_methods"
+    description: "Methods that require object state"
+    examples:
+      - "corruption:getMultiplier(suit)"
+      - "corruption:trackHand(hand)"
+      - "card:getDescription()"
+    when_to_use: "When the method needs access to object state"
+
+  - pattern: "static_methods"
+    description: "Utility functions that don't require object state"
+    examples:
+      - "Corruption.getLevel(value)"
+      - "Card.new()"
+    when_to_use: "For utility functions and constructors"
+
+  - pattern: "error_prevention"
+    description: "Common patterns to prevent nil/method errors"
+    examples:
+      - "Initialize all required state in constructor"
+      - "Check for nil before method calls"
+      - "Use proper method call syntax"
+    when_to_use: "Always, especially after encountering related errors"
+
+# Jump Definitions
+definitions:
+  # Card System
+  - pattern: "Card\\.new"
+    file: "src/cards/card.lua"
+    description: "Base playing card constructor"
+  
+  - pattern: "Card:getNumericValue"
+    file: "src/cards/card.lua"
+    description: "Get numeric value of card (2-11 for Ace)"
+
+  - pattern: "Card:getDescription"
+    file: "src/cards/card.lua"
+    description: "Get flavor text description of card based on suit and value"
+
+  - pattern: "Card:calculateValue"
+    file: "src/cards/card.lua"
+    description: "Calculate final card value including corruption multipliers"
+
+  - pattern: "Card:containsPoint"
+    file: "src/cards/card.lua"
+    description: "Check if a point is inside the card's bounds"
+
+  - pattern: "Card:setPosition"
+    file: "src/cards/card.lua"
+    description: "Set card's position on screen"
+
+  # Deck System
+  - pattern: "Deck\\.new"
+    file: "src/cards/deck.lua"
+    description: "Deck constructor"
+  
+  - pattern: "Deck:initializeStandardDeck"
+    file: "src/cards/deck.lua"
+    description: "Create and initialize a standard 52-card deck"
+
+  - pattern: "Deck:drawCards"
+    file: "src/cards/deck.lua"
+    description: "Draw specified number of cards from deck to hand"
+
+  - pattern: "Deck:fillHand"
+    file: "src/cards/deck.lua"
+    description: "Draw cards until hand is full (HAND_SIZE)"
+
+  - pattern: "Deck:playCard"
+    file: "src/cards/deck.lua"
+    description: "Move card from hand to played area"
+
+  - pattern: "Deck:discardCard"
+    file: "src/cards/deck.lua"
+    description: "Move card from hand to discard pile"
+
+  - pattern: "Deck:startNewRound"
+    file: "src/cards/deck.lua"
+    description: "Reset deck state and start new round"
+
+  - pattern: "Deck:shuffle"
+    file: "src/cards/deck.lua"
+    description: "Shuffle the draw pile"
+
+  - pattern: "Deck:getDeckStats"
+    file: "src/cards/deck.lua"
+    description: "Get current statistics about cards in different piles"
+
+  # Effects System
+  - pattern: "Effects\\.createModifier"
+    file: "src/cards/effects.lua"
+    description: "Factory for creating card modifiers"
+
+  - pattern: "Effects\\.detectCombinations"
+    file: "src/cards/effects.lua"
+    description: "Detect special card combinations and their multipliers"
+
+  - pattern: "Modifier\\.new"
+    file: "src/cards/effects.lua"
+    description: "Base modifier constructor"
+
+  - pattern: "Modifier:apply"
+    file: "src/cards/effects.lua"
+    description: "Apply modifier effect to a value"
+
+  # Corruption System
+  - pattern: "Corruption\\.new"
+    file: "src/waifu/corruption.lua"
+    description: "Corruption state constructor"
+
+  - pattern: "Corruption\\.getLevel"
+    file: "src/waifu/corruption.lua"
+    description: "Get corruption level from value"
+
+  - pattern: "Corruption:trackHand"
+    file: "src/waifu/corruption.lua"
+    description: "Track hand value for corruption progression"
+
+  - pattern: "Corruption:getMultiplier"
+    file: "src/waifu/corruption.lua"
+    description: "Get current multiplier for a suit based on corruption level"
+
+  - pattern: "Corruption:getMessages"
+    file: "src/waifu/corruption.lua"
+    description: "Get all active corruption effect messages"
+
+  # Game State
+  - pattern: "GameState\\.new"
+    file: "src/states/game.lua"
+    description: "Main game state constructor"
+
+  - pattern: "GameState:playSelectedCards"
+    file: "src/states/game.lua"
+    description: "Play currently selected cards and process scoring"
+
+  - pattern: "GameState:discardSelectedCards"
+    file: "src/states/game.lua"
+    description: "Discard currently selected cards"
+
+  - pattern: "GameState:startNewTurn"
+    file: "src/states/game.lua"
+    description: "End current turn and prepare for next turn"
+
+  - pattern: "GameState:levelUp"
+    file: "src/states/game.lua"
+    description: "Process level up, carrying over excess points"
+
+  - pattern: "GameState:addLevelReward"
+    file: "src/states/game.lua"
+    description: "Add new modifier based on current level"
+
+  - pattern: "GameState:updateHandPositions"
+    file: "src/states/game.lua"
+    description: "Update visual positions of cards in hand"
+
+  - pattern: "GameState:updateMessages"
+    file: "src/states/game.lua"
+    description: "Update message display timers and queue"
+
+  # UI System
+  - pattern: "BasicUI\\.drawCard"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw a card with proper styling and highlights"
+
+  - pattern: "BasicUI\\.drawStats"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw game stats (score, hands, deck info)"
+
+  - pattern: "BasicUI\\.drawCorruption"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw corruption levels and multipliers"
+
+  - pattern: "BasicUI\\.drawActionButtons"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw play/discard action buttons"
+
+  - pattern: "BasicUI\\.drawMessages"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw message notifications with background"
+
+  - pattern: "BasicUI\\.drawWaifu"
+    file: "src/ui/basic_ui.lua"
+    description: "Draw waifu representation with corruption indicators"
+
+  - pattern: "BasicUI\\.isMouseOverButton"
+    file: "src/ui/basic_ui.lua"
+    description: "Check if mouse is over a button"
+
+  - pattern: "BasicUI\\.getButtonPositions"
+    file: "src/ui/basic_ui.lua"
+    description: "Get positions for action buttons"
+
+  # Audio System
+  - pattern: "BasicAudio\\.init"
+    file: "src/audio/basic_audio.lua"
+    description: "Initialize audio system and generate sound effects"
+
+  - pattern: "BasicAudio\\.play"
+    file: "src/audio/basic_audio.lua"
+    description: "Play a sound effect by name"
+
+# Code Completion
+completions:
+  - prefix: "card"
+    snippets:
+      - name: "newCard"
+        code: |
+          local newCard = Card.new(
+              Card.SUITS.${1|DATES,GIFTS,COMPLIMENTS,SOCIAL|},
+              ${2|2,3,4,5,6,7,8,9,10,"JACK","QUEEN","KING","ACE"|}
+          )
+  
+  - prefix: "mod"
+    snippets:
+      - name: "newModifier"
+        code: |
+          local ${1:ModifierName} = setmetatable({}, {__index = Modifier})
+          ${1:ModifierName}.__index = ${1:ModifierName}
+          
+          function ${1:ModifierName}.new()
+              local self = Modifier.new(
+                  "${2:id}",
+                  "${3:name}",
+                  "${4:description}",
+                  ${5:rarity} -- Common = 1, Uncommon = 2, Rare = 3, Legendary = 4
+              )
+              return setmetatable(self, ${1:ModifierName})
+          end
+          
+          function ${1:ModifierName}:applyToCard(card)
+              ${6:-- Modifier logic}
+              return card
+          end
+          
+          function ${1:ModifierName}:applyToHand(hand)
+              ${7:-- Hand modification logic}
+              return hand
+          end
+  
+  - prefix: "poker"
+    snippets:
+      - name: "checkHand"
+        code: |
+          local handType, multiplier = detectPokerHand(cards)
+          if handType then
+              local score = baseScore * multiplier
+              ${1:-- Handle scoring}
+          end
+
+  - prefix: "corruption"
+    snippets:
+      - name: "checkCorruption"
+        code: |
+          local corruptionValue = 0
+          for _, hand in ipairs(scoredHands) do
+              if hand.suit == Card.SUITS.${1|DATES,GIFTS,COMPLIMENTS,SOCIAL|} then
+                  corruptionValue = corruptionValue + hand.value * hand.multiplier
+              end
+          end
+          
+          local corruptionLevel = Corruption.getLevel(corruptionValue)
+          if corruptionLevel > 0 then
+              ${2:-- Handle corruption effects}
+          end
+
+  - prefix: "hand"
+    snippets:
+      - name: "scoreHand"
+        code: |
+          local handValue = 0
+          local handMultiplier = 1
+          
+          -- Only count cards that form valid scoring hands
+          if isValidHand(selectedCards) then
+              for _, card in ipairs(selectedCards) do
+                  handValue = handValue + card:getNumericValue()
+              end
+              handValue = handValue * handMultiplier
+              
+              -- Track corruption for the hand's suit
+              trackCorruption(handValue, selectedCards[1].suit)
+          end
+
+  - prefix: "audio"
+    snippets:
+      - name: "playSound"
+        code: |
+          BasicAudio.play("${1|CARD_PLAY,CORRUPTION,LEVEL_UP,GAME_OVER|}")
+
+      - name: "initAudio"
+        code: |
+          BasicAudio.init({
+              CARD_PLAY = love.audio.newSource("${1:path/to/card.wav}", "static"),
+              CORRUPTION = love.audio.newSource("${2:path/to/corruption.wav}", "static"),
+              LEVEL_UP = love.audio.newSource("${3:path/to/levelup.wav}", "static"),
+              GAME_OVER = love.audio.newSource("${4:path/to/gameover.wav}", "static")
+          })
+
+  - prefix: "waifu"
+    snippets:
+      - name: "newWaifuState"
+        code: |
+          local waifuState = {
+              corruption = Corruption.new(),
+              level = 1,
+              points = 0,
+              resources = 100,
+              modifiers = {}
+          }
+
+# Search Paths
+search:
+  - include: ["*.lua", "*.md"]
+  - exclude: ["**/.*", "node_modules", "dist"]
+
+# Formatting
+format:
+  indentSize: 4
+  maxLineLength: 100
+  newlineAtEndOfFile: true
+  
+# Linting
+lint:
+  globals:
+    - "love"
+    - "require"
+    - "Card"
+    - "Modifier"
+    - "detectPokerHand"
+  
+  rules:
+    - no-unused-vars: "error"
+    - no-global-assign: "error"
+    - no-implicit-globals: "error"
+    - proper-method-calls: "error"
+  
+  method_conventions:
+    - "Use : for instance methods"
+    - "Use . for static methods"
+    - "Initialize objects before use"
+    - "Check for nil before method calls"
+
+# Documentation
+docs:
+  - pattern: "src/cards/*.lua"
+    template: |
+      --- ${1:Brief description}
+      -- @class ${TM_FILENAME_BASE}
+      -- @field suit string The card's suit
+      -- @field value number|string The card's value (2-10, JACK, QUEEN, KING, ACE)
+      -- Instance methods:
+      --   :getNumericValue() - Get numeric value (2-11)
+      --   :getDescription() - Get flavor text
+      --   :calculateValue(gameState) - Get final value with multipliers
+      -- Static methods:
+      --   .new(suit, value) - Create new card
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation}
+  
+  - pattern: "src/modifiers/*.lua"
+    template: |
+      --- ${1:Brief description}
+      -- @class ${TM_FILENAME_BASE}
+      -- @field id string Unique identifier
+      -- @field name string Display name
+      -- @field description string Effect description
+      -- @field rarity number Rarity level (1-4)
+      -- Instance methods should use : syntax
+      -- Static methods should use . syntax
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation}
+  
+  - pattern: "src/waifu/corruption.lua"
+    template: |
+      --- Corruption system based on scored hand values
+      -- @class Corruption
+      -- @field thresholds table Value thresholds for corruption levels
+      -- @field states table Corruption states and their effects
+      -- @field suitValues table Total scored value per suit
+      -- Instance methods:
+      --   :getMultiplier(suit) - Get multiplier for a suit
+      --   :trackHand(hand) - Track a scored hand
+      --   :getMessages() - Get all active corruption messages
+      -- Static methods:
+      --   .getLevel(value) - Get corruption level for value
+      --   .new() - Create new corruption tracker
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation}
+
+  - pattern: "src/states/game.lua"
+    template: |
+      --- Main game state handling gameplay logic
+      -- @class GameState
+      -- @field deck Deck Current deck state
+      -- @field relationshipLevel number Current level
+      -- @field relationshipPoints number Current score
+      -- @field corruption Corruption Corruption tracker
+      -- Instance methods:
+      --   :playSelectedCards() - Play and score selected cards
+      --   :discardSelectedCards() - Discard selected cards
+      --   :startNewTurn() - Start next turn
+      --   :levelUp() - Process level up
+      -- Static methods:
+      --   .new() - Create new game state
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation}
+
+  - pattern: "src/ui/basic_ui.lua"
+    template: |
+      --- UI rendering functions
+      -- @class BasicUI
+      -- Static methods:
+      --   .drawCard(card, x, y, width, height, isHighlighted)
+      --   .drawStats(score, handsRemaining, deckStats, x, y)
+      --   .drawCorruption(corruption, x, y)
+      --   .drawActionButtons(x, y, width, height, canPlay, canDiscard)
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation}
+
+  - pattern: "src/audio/basic_audio.lua"
+    template: |
+      --- Audio system for sound effects
+      -- @class BasicAudio
+      -- Static methods:
+      --   .init() - Initialize sound system
+      --   .play(soundName) - Play a sound effect
+      -- @copyright ${CURRENT_YEAR}
+      -- @license MIT
+      
+      ${2:-- Implementation} 
