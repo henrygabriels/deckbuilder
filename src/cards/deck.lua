@@ -4,65 +4,71 @@ local Deck = {}
 Deck.__index = Deck
 
 -- Constants
-local HAND_SIZE = 7  -- Default hand size
+Deck.HAND_SIZE = 7  -- Make HAND_SIZE accessible to other modules
+
+-- Card rank order for sorting
+Deck.RANK_ORDER = {
+    [2] = 2, [3] = 3, [4] = 4, [5] = 5, [6] = 6, [7] = 7, [8] = 8, [9] = 9, [10] = 10,
+    ["JACK"] = 11, ["QUEEN"] = 12, ["KING"] = 13, ["ACE"] = 14
+}
 
 -- Create a new deck
 function Deck.new()
     local self = setmetatable({}, Deck)
     
-    self.cards = {}         -- All cards in the deck
-    self.drawPile = {}      -- Cards available to draw
-    self.discardPile = {}   -- Cards that were discarded this round
-    self.playedCards = {}   -- Cards currently in play
-    self.hand = {}          -- Cards in hand
-    self.usedThisRound = {} -- Cards that were played this round (for round tracking)
+    -- Initialize card collections
+    self.drawPile = {}
+    self.hand = {}
+    self.playedCards = {}
+    self.discardPile = {}
     
     return self
 end
 
 -- Initialize a standard 52-card deck
 function Deck:initializeStandardDeck()
-    -- Clear existing cards
-    self.cards = {}
-    
-    -- Add numbered cards (2-10)
-    for value = 2, 10 do
-        table.insert(self.cards, Card.new(Card.SUITS.DATES, value))
-        table.insert(self.cards, Card.new(Card.SUITS.GIFTS, value))
-        table.insert(self.cards, Card.new(Card.SUITS.COMPLIMENTS, value))
-        table.insert(self.cards, Card.new(Card.SUITS.SOCIAL, value))
-    end
-    
-    -- Add face cards and aces
-    local faceCards = {"JACK", "QUEEN", "KING", "ACE"}
-    for _, value in ipairs(faceCards) do
-        table.insert(self.cards, Card.new(Card.SUITS.DATES, value))
-        table.insert(self.cards, Card.new(Card.SUITS.GIFTS, value))
-        table.insert(self.cards, Card.new(Card.SUITS.COMPLIMENTS, value))
-        table.insert(self.cards, Card.new(Card.SUITS.SOCIAL, value))
-    end
-    
-    -- Initialize draw pile with all cards
+    -- Clear all collections
     self.drawPile = {}
-    for _, card in ipairs(self.cards) do
-        table.insert(self.drawPile, card)
+    self.hand = {}
+    self.playedCards = {}
+    self.discardPile = {}
+    
+    -- Create all cards
+    for _, suit in pairs(Card.SUITS) do
+        -- Number cards
+        for value = 2, 10 do
+            table.insert(self.drawPile, Card.new(suit, value))
+        end
+        -- Face cards
+        table.insert(self.drawPile, Card.new(suit, "JACK"))
+        table.insert(self.drawPile, Card.new(suit, "QUEEN"))
+        table.insert(self.drawPile, Card.new(suit, "KING"))
+        table.insert(self.drawPile, Card.new(suit, "ACE"))
     end
     
+    -- Shuffle the deck
     self:shuffle()
 end
 
 -- Shuffle the draw pile
 function Deck:shuffle()
-    local cards = self.drawPile
-    for i = #cards, 2, -1 do
+    local drawPileSize = #self.drawPile
+    for i = drawPileSize, 2, -1 do
         local j = love.math.random(i)
-        cards[i], cards[j] = cards[j], cards[i]
+        self.drawPile[i], self.drawPile[j] = self.drawPile[j], self.drawPile[i]
     end
+end
+
+-- Sort cards by rank
+function Deck:sortHand()
+    table.sort(self.hand, function(a, b)
+        return Deck.RANK_ORDER[a.value] < Deck.RANK_ORDER[b.value]
+    end)
 end
 
 -- Draw a specified number of cards
 function Deck:drawCards(count)
-    count = count or HAND_SIZE  -- Use default hand size if not specified
+    count = count or Deck.HAND_SIZE  -- Use class constant for default hand size
     local drawnCards = {}
     
     -- Draw up to count cards or as many as we can
@@ -73,38 +79,39 @@ function Deck:drawCards(count)
         table.insert(drawnCards, card)
     end
     
+    -- Sort hand by rank
+    self:sortHand()
+    
     return drawnCards
 end
 
 -- Play a card from hand
 function Deck:playCard(cardId)
+    -- Find and remove card from hand
     for i, card in ipairs(self.hand) do
         if card.id == cardId then
             table.remove(self.hand, i)
             table.insert(self.playedCards, card)
-            table.insert(self.usedThisRound, card)
-            return card
+            break
         end
     end
-    return nil
 end
 
 -- Discard a card from hand
 function Deck:discardCard(cardId)
+    -- Find and remove card from hand
     for i, card in ipairs(self.hand) do
         if card.id == cardId then
             table.remove(self.hand, i)
             table.insert(self.discardPile, card)
-            table.insert(self.usedThisRound, card)
-            return card
+            break
         end
     end
-    return nil
 end
 
 -- Draw cards until we have a full hand
 function Deck:fillHand()
-    local cardsNeeded = HAND_SIZE - #self.hand
+    local cardsNeeded = Deck.HAND_SIZE - #self.hand
     if cardsNeeded > 0 and #self.drawPile > 0 then
         return self:drawCards(cardsNeeded)
     end
@@ -122,44 +129,49 @@ end
 
 -- Start a new round: reset all piles and shuffle
 function Deck:startNewRound()
-    -- Reset all piles
-    self.drawPile = {}
-    self.discardPile = {}
-    self.playedCards = {}
-    self.hand = {}
-    self.usedThisRound = {}
-    
-    -- Restore all cards to draw pile
-    for _, card in ipairs(self.cards) do
+    -- Return all cards to draw pile
+    for _, card in ipairs(self.hand) do
+        table.insert(self.drawPile, card)
+    end
+    for _, card in ipairs(self.playedCards) do
+        table.insert(self.drawPile, card)
+    end
+    for _, card in ipairs(self.discardPile) do
         table.insert(self.drawPile, card)
     end
     
+    -- Clear all other collections
+    self.hand = {}
+    self.playedCards = {}
+    self.discardPile = {}
+    
     -- Shuffle the deck
     self:shuffle()
-    
-    -- Draw initial hand
-    return self:drawCards(HAND_SIZE)
 end
 
 -- Get current deck statistics
 function Deck:getDeckStats()
     return {
-        totalCards = #self.cards,
-        remainingInDeck = #self.drawPile,  -- Only count cards still in draw pile
+        remainingInDeck = #self.drawPile,
         inHand = #self.hand,
-        discarded = #self.discardPile,
-        played = #self.usedThisRound - #self.discardPile,  -- Played cards (excluding discards)
-        usedThisRound = #self.usedThisRound
+        played = #self.playedCards,
+        discarded = #self.discardPile
     }
 end
 
 -- Update all cards in the deck
 function Deck:update(dt)
+    -- Update all cards in all collections
+    for _, card in ipairs(self.drawPile) do
+        card:update(dt)
+    end
     for _, card in ipairs(self.hand) do
         card:update(dt)
     end
-    
     for _, card in ipairs(self.playedCards) do
+        card:update(dt)
+    end
+    for _, card in ipairs(self.discardPile) do
         card:update(dt)
     end
 end

@@ -30,20 +30,19 @@ local SUIT_SYMBOLS = {
 
 -- Draw a basic card
 function BasicUI.drawCard(card, x, y, width, height, isHighlighted)
-    -- Background with selection highlight
-    if isHighlighted then
-        -- Draw selection glow
-        love.graphics.setColor(COLORS.CARD_BORDER[1], COLORS.CARD_BORDER[2], COLORS.CARD_BORDER[3], 0.3)
-        love.graphics.rectangle("fill", x - 5, y - 5, width + 10, height + 10, 10, 10)
-    end
+    -- Card shadow (more pronounced when lifted)
+    local shadowOffset = isHighlighted and 8 or 2
+    local shadowAlpha = isHighlighted and 0.4 or 0.2
+    love.graphics.setColor(0, 0, 0, shadowAlpha)
+    love.graphics.rectangle("fill", x + shadowOffset, y + shadowOffset, width, height, 8, 8)
     
     -- Card background
-    love.graphics.setColor(isHighlighted and COLORS.CARD_BORDER or COLORS.CARD_BG)
+    love.graphics.setColor(COLORS.CARD_BG)
     love.graphics.rectangle("fill", x, y, width, height, 8, 8)
     
-    -- Border (thicker for selected cards)
+    -- Border
     love.graphics.setColor(COLORS.SUIT_COLORS[card.suit])
-    love.graphics.setLineWidth(isHighlighted and 3 or 2)
+    love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, width, height, 8, 8)
     
     -- Card content

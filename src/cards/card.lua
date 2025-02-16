@@ -1,6 +1,9 @@
 local Card = {}
 Card.__index = Card
 
+-- Import required modules
+local BasicAudio = require("src.audio.basic_audio")
+
 -- Card suits
 Card.SUITS = {
     DATES = "dates",
@@ -45,6 +48,16 @@ function Card.new(suit, value)
     self.dragOffsetX = 0
     self.dragOffsetY = 0
     self.highlighted = false
+    self.baseY = 0  -- Base Y position (for animation)
+    self.targetY = 0  -- Target Y position for animation
+    self.baseX = 0  -- Base X position
+    self.targetX = 0  -- Target X position
+    self.liftHeight = 60  -- How high the card lifts when selected
+    self.animationSpeed = 12  -- Animation speed multiplier
+    self.isAnimating = false
+    self.onAnimationComplete = nil  -- Callback for when animation completes
+    self.animationType = nil  -- Current animation type (select, play, discard)
+    self.targetRotation = 0  -- Target rotation for animations
     self.hoverScale = 1.0  -- Scale for hover effect
     self.targetScale = 1.0  -- Target scale for animations
     
@@ -137,37 +150,95 @@ end
 
 -- Update card state
 function Card:update(dt)
-    -- Smooth scale animation
-    if math.abs(self.scale - self.targetScale) > 0.01 then
-        self.scale = self.scale + (self.targetScale - self.scale) * dt * 10
+    local isMoving = false
+    
+    if self.isDealing then
+        local currentTime = love.timer.getTime()
+        if currentTime >= self.animationStartTime then
+            -- Play sound when animation starts, but only once
+            if not self.soundPlayed then
+                BasicAudio.playDealNote(self.value)
+                self.soundPlayed = true
+            end
+            
+            local elapsed = currentTime - self.animationStartTime
+            local progress = math.min(elapsed / self.animationDuration, 1)
+            
+            -- Use easeOutQuad for smoother animation
+            progress = -(progress * (progress - 2))
+            
+            self.x = self.startX + (self.targetX - self.startX) * progress
+            self.y = self.startY + (self.targetY - self.startY) * progress
+            
+            if progress >= 1 then
+                self.isDealing = false
+                self.x = self.targetX
+                self.y = self.targetY
+            end
+        end
+    end
+    
+    -- Smooth position animation with easing
+    if math.abs(self.x - self.targetX) > 0.5 then
+        local dx = (self.targetX - self.x)
+        local ease = self.animationType == "discard" and 0.85 or 0.92  -- More smoothing for discard
+        self.x = self.x + dx * dt * self.animationSpeed * ease
+        isMoving = true
     else
-        self.scale = self.targetScale
+        self.x = self.targetX
+    end
+    
+    if math.abs(self.y - self.targetY) > 0.5 then
+        local dy = (self.targetY - self.y)
+        local ease = self.animationType == "discard" and 0.85 or 0.92
+        self.y = self.y + dy * dt * self.animationSpeed * ease
+        isMoving = true
+    else
+        self.y = self.targetY
+    end
+    
+    -- Enhanced rotation animation with easing
+    if math.abs(self.rotation - self.targetRotation) > 0.01 then
+        local dr = (self.targetRotation - self.rotation)
+        -- Use different easing for different animation types
+        local ease = self.animationType == "discard" and 0.8 or 0.92
+        self.rotation = self.rotation + dr * dt * self.animationSpeed * ease
+        isMoving = true
+    else
+        self.rotation = self.targetRotation
+    end
+    
+    -- Check if animation is complete
+    if self.isAnimating and not isMoving then
+        self.isAnimating = false
+        if self.onAnimationComplete then
+            self.onAnimationComplete()
+            self.onAnimationComplete = nil
+        end
     end
 end
 
 -- Draw the card
 function Card:draw()
+    -- Save current graphics state
     love.graphics.push()
+    
+    -- Apply transformations relative to card center
     love.graphics.translate(self.x, self.y)
     love.graphics.rotate(self.rotation)
-    love.graphics.scale(self.scale)
     
-    -- Draw card shadow
+    -- Draw card shadow (offset slightly)
     love.graphics.setColor(0, 0, 0, 0.2)
-    love.graphics.rectangle("fill", -self.width/2 + 2, -self.height/2 + 2, self.width, self.height, 8, 8)
+    love.graphics.rectangle("fill", -self.width/2 + 4, -self.height/2 + 4, self.width, self.height, 8, 8)
     
     -- Draw card background
-    if self.highlighted then
-        love.graphics.setColor(1, 0.8, 0.8, 1)
-    else
-        love.graphics.setColor(0.2, 0.2, 0.2, 1)
-    end
+    love.graphics.setColor(0.2, 0.2, 0.2, 1)
     love.graphics.rectangle("fill", -self.width/2, -self.height/2, self.width, self.height, 8, 8)
     
     -- Draw card border
     if self.highlighted then
         love.graphics.setColor(1, 0.4, 0.7, 1)
-        love.graphics.setLineWidth(3)  -- Thicker border when selected
+        love.graphics.setLineWidth(3)
     else
         love.graphics.setColor(1, 0.4, 0.7, 0.7)
         love.graphics.setLineWidth(2)
@@ -178,14 +249,21 @@ function Card:draw()
     love.graphics.setColor(1, 1, 1, 1)
     
     -- Draw card name
-    love.graphics.printf(self:getDisplayName(), -self.width/2 + 10, -self.height/2 + 10, self.width - 20, "center")
+    love.graphics.printf(self:getDisplayName(), 
+        -self.width/2, -self.height/2 + 10, 
+        self.width, "center")
     
     -- Draw value
-    love.graphics.printf(tostring(self.value), -self.width/2 + 10, -self.height/2 + 35, self.width - 20, "center")
+    love.graphics.printf(tostring(self.value), 
+        -self.width/2, -self.height/2 + 35, 
+        self.width, "center")
     
     -- Draw description
-    love.graphics.printf(self:getDescription(), -self.width/2 + 10, self.height/2 - 50, self.width - 20, "center")
+    love.graphics.printf(self:getDescription(), 
+        -self.width/2, self.height/2 - 50, 
+        self.width, "center")
     
+    -- Restore graphics state
     love.graphics.pop()
 end
 
@@ -213,11 +291,17 @@ function Card:containsPoint(x, y)
             end
         end
         
-        self.targetScale = 1.1  -- Hover effect
+        -- Only add hover effect if not selected
+        if not self.highlighted then
+            self.targetScale = 1.05  -- Subtle hover effect
+        end
         return true
     end
     
-    self.targetScale = 1.0  -- Normal size
+    -- Reset hover effect if not highlighted
+    if not self.highlighted then
+        self.targetScale = 1.0  -- Normal size
+    end
     return false
 end
 
@@ -243,8 +327,12 @@ end
 
 -- Set card position (centered)
 function Card:setPosition(x, y)
-    self.x = x + (self.width * self.scale) / 2  -- Center the card on the given x position
+    self.x = x
     self.y = y
+    self.baseX = self.x
+    self.baseY = y
+    self.targetX = self.x
+    self.targetY = y
 end
 
 -- Set card scale
@@ -261,10 +349,50 @@ end
 function Card:setHighlight(highlighted)
     self.highlighted = highlighted
     if highlighted then
-        self.targetScale = 1.1  -- Enlarge when selected
+        self.targetY = self.baseY - self.liftHeight  -- Lift card up
     else
-        self.targetScale = 1.0  -- Normal size when deselected
+        self.targetY = self.baseY  -- Return to base position
     end
+    self.isAnimating = true
+    self.animationType = "select"
+end
+
+-- Animate to played area
+function Card:animateToPlay(targetX, targetY, callback)
+    self.targetX = targetX
+    self.targetY = targetY
+    self.targetRotation = 0
+    self.isAnimating = true
+    self.animationType = "play"
+    self.onAnimationComplete = callback
+end
+
+-- Animate to discard
+function Card:animateToDiscard(callback)
+    -- Animate off to the left and rotate more dramatically
+    self.targetX = -200
+    self.targetY = love.graphics.getHeight() / 2
+    self.targetRotation = -math.pi * 2  -- Full 360 degree spin
+    self.animationSpeed = 8  -- Slower animation for more satisfying motion
+    self.isAnimating = true
+    self.animationType = "discard"
+    
+    -- Play card slide sound
+    BasicAudio.playCardSlide()
+    
+    self.onAnimationComplete = callback
+end
+
+-- Add new function for dealing animation
+function Card:animateDealing(targetX, targetY, delay)
+    self.isDealing = true
+    self.animationStartTime = love.timer.getTime() + delay
+    self.startX = self.x
+    self.startY = self.y
+    self.targetX = targetX
+    self.targetY = targetY
+    self.animationDuration = 0.2  -- Reduced from 0.3 to 0.2 seconds
+    self.soundPlayed = false  -- Add flag for sound playing
 end
 
 return Card 

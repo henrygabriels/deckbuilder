@@ -84,6 +84,9 @@ function GameState:startNewRound()
     -- Reset deck and draw initial hand
     self.deck:startNewRound()
     
+    -- Play round start sound
+    BasicAudio.play("ROUND_START")
+    
     -- Reset round state
     self.selectedCards = {}
     self.currentScore = 0
@@ -92,9 +95,6 @@ function GameState:startNewRound()
     self.handsRemaining = 3  -- Reset to 3 hands per round
     self.discardsRemaining = 3  -- Reset to 3 discards per round
     
-    -- Update hand positions
-    self:updateHandPositions()
-    
     -- Add round start message
     local state = self.runManager:getState()
     table.insert(self.messages, {
@@ -102,6 +102,16 @@ function GameState:startNewRound()
             state.stage, state.round, state.threshold),
         timer = 5
     })
+    
+    -- Set a timer to deal cards after a short delay
+    self.isTransitioning = true
+    self.transitionTimer = 0.5  -- Half second delay before dealing
+    self.pendingAction = "dealInitialHand"
+end
+
+function GameState:dealInitialHand()
+    -- Fill initial hand with animation
+    self:fillHand()
 end
 
 function GameState:playSelectedCards()
@@ -112,6 +122,22 @@ function GameState:playSelectedCards()
             table.insert(self.messages, {
                 text = "Not a valid poker hand!",
                 timer = 2
+            })
+            return
+        end
+        
+        -- Play hand-specific chord
+        BasicAudio.playHandChord(handInfo.handType.name)
+        
+        -- Decrement hands remaining when a valid hand is played
+        self.handsRemaining = self.handsRemaining - 1
+        
+        -- Check if we've run out of hands
+        if self.handsRemaining < 0 then
+            self.gameOver = true
+            table.insert(self.messages, {
+                text = "Game Over - Out of hands!",
+                timer = -1  -- Permanent message
             })
             return
         end
@@ -173,6 +199,12 @@ function GameState:playSelectedCards()
             timer = 3
         })
         
+        -- Add hands remaining message
+        table.insert(self.messages, {
+            text = string.format("Hands remaining: %d", self.handsRemaining),
+            timer = 2
+        })
+        
         -- Process bonuses
         for _, bonus in ipairs(result.bonuses) do
             table.insert(self.messages, {
@@ -182,46 +214,45 @@ function GameState:playSelectedCards()
             })
         end
         
-        -- Move cards to played area
-        for _, card in ipairs(self.selectedCards) do
-            self.deck:playCard(card.id)
+        -- Animate cards to played area
+        local cardsToMove = {}
+        for i, card in ipairs(self.selectedCards) do
+            table.insert(cardsToMove, card)
         end
+        
+        -- Clear selected cards immediately to prevent double-playing
         self.selectedCards = {}
         
-        -- Start transition timer
-        self.isTransitioning = true
-        self.transitionTimer = 1.5  -- Show result for 1.5 seconds
-        
-        -- Check if we've hit the target score
-        if result.cleared then
-            self.pendingAction = "endRound"
-            table.insert(self.messages, {
-                text = "Stage threshold reached! Moving to next round...",
-                timer = 3
-            })
-        else
-            -- Set pending action based on hand state
-            if #self.deck.hand == 0 then
-                -- Used up current hand
-                self.handsRemaining = self.handsRemaining - 1
-                
-                if self.handsRemaining <= 0 then
-                    self.pendingAction = "endRound"
-                    table.insert(self.messages, {
-                        text = "Out of hands for this round!",
-                        timer = 2
-                    })
-                else
-                    self.pendingAction = "draw"
-                    table.insert(self.messages, {
-                        text = string.format("Hands remaining: %d", self.handsRemaining),
-                        timer = 2
-                    })
+        -- Start animations
+        local cardsAnimating = #cardsToMove
+        for i, card in ipairs(cardsToMove) do
+            local targetX = self.playArea.x + 50 + (i-1) * 130 + card.width/2
+            local targetY = self.playArea.y + 50 + card.height/2
+            
+            card:animateToPlay(targetX, targetY, function()
+                cardsAnimating = cardsAnimating - 1
+                if cardsAnimating == 0 then
+                    -- All cards finished animating
+                    for _, c in ipairs(cardsToMove) do
+                        self.deck:playCard(c.id)
+                    end
+                    
+                    -- Start transition timer
+                    self.isTransitioning = true
+                    self.transitionTimer = 1.5
+                    
+                    -- Set pending action
+                    if result.cleared then
+                        self.pendingAction = "endRound"
+                    else
+                        self.pendingAction = "draw"
+                    end
                 end
-            else
-                self.pendingAction = "draw"
-            end
+            end)
         end
+        
+        -- Check for corruption level changes
+        self:checkCorruptionChange(self.corruption.suitValues, self.corruption.suitValues)
     end
 end
 
@@ -236,6 +267,9 @@ function GameState:discardSelectedCards()
             return
         end
         
+        -- Play discard sound effect
+        BasicAudio.play("CARD_DISCARD")
+        
         if #self.selectedCards > self.maxCardsPerDiscard then
             table.insert(self.messages, {
                 text = string.format("Can only discard up to %d cards at once!", self.maxCardsPerDiscard),
@@ -244,46 +278,62 @@ function GameState:discardSelectedCards()
             return
         end
         
-        -- Move cards to discard pile
+        -- Store cards to animate
+        local cardsToDiscard = {}
         for _, card in ipairs(self.selectedCards) do
-            self.deck:discardCard(card.id)
+            table.insert(cardsToDiscard, card)
         end
+        
+        -- Clear selected cards immediately
         self.selectedCards = {}
         
-        -- Start transition timer
-        self.isTransitioning = true
-        self.transitionTimer = 1.0  -- Slightly shorter delay for discards
-        
-        -- Decrement discards remaining
-        self.discardsRemaining = self.discardsRemaining - 1
-        
-        -- Set pending action based on hand state
-        if #self.deck.hand == 0 then
-            -- Used up current hand
-            self.handsRemaining = self.handsRemaining - 1
-            
-            if self.handsRemaining <= 0 then
-                self.pendingAction = "endRound"
-                table.insert(self.messages, {
-                    text = "Out of hands for this round!",
-                    timer = 2
-                })
-            else
-                self.pendingAction = "draw"
-                table.insert(self.messages, {
-                    text = string.format("Hands remaining: %d", self.handsRemaining),
-                    timer = 2
-                })
-            end
-        else
-            self.pendingAction = "draw"
+        -- Start animations
+        local cardsAnimating = #cardsToDiscard
+        for _, card in ipairs(cardsToDiscard) do
+            card:animateToDiscard(function()
+                cardsAnimating = cardsAnimating - 1
+                if cardsAnimating == 0 then
+                    -- All cards finished animating
+                    for _, c in ipairs(cardsToDiscard) do
+                        self.deck:discardCard(c.id)
+                    end
+                    
+                    -- Start transition timer
+                    self.isTransitioning = true
+                    self.transitionTimer = 0.5
+                    
+                    -- Update hand state
+                    if #self.deck.hand == 0 then
+                        self.handsRemaining = self.handsRemaining - 1
+                        if self.handsRemaining < 0 then
+                            self.gameOver = true
+                            table.insert(self.messages, {
+                                text = "Game Over - Out of hands!",
+                                timer = -1
+                            })
+                            return
+                        end
+                        
+                        if self.handsRemaining <= 0 then
+                            self.pendingAction = "endRound"
+                        else
+                            self.pendingAction = "draw"
+                        end
+                    else
+                        self.pendingAction = "draw"
+                    end
+                    
+                    -- Decrement discards remaining
+                    self.discardsRemaining = self.discardsRemaining - 1
+                    
+                    -- Add discard message
+                    table.insert(self.messages, {
+                        text = string.format("Cards discarded (%d discards remaining)", self.discardsRemaining),
+                        timer = 2
+                    })
+                end
+            end)
         end
-        
-        -- Add discard message
-        table.insert(self.messages, {
-            text = string.format("Cards discarded (%d discards remaining)", self.discardsRemaining),
-            timer = 2
-        })
     end
 end
 
@@ -297,6 +347,7 @@ function GameState:endRound()
     if not success then
         -- Game over - breakup
         self.gameOver = true
+        BasicAudio.play("GAME_OVER")
         table.insert(self.messages, {
             text = message,
             timer = -1  -- Permanent message
@@ -305,6 +356,11 @@ function GameState:endRound()
         -- Show round summary instead of immediately starting next round
         self.showingSummary = true
         self.readyForNextRound = true
+        
+        -- Check if we advanced to next stage (level up)
+        if self.runManager:getState().round == 1 then
+            BasicAudio.play("LEVEL_UP")
+        end
     end
 end
 
@@ -342,8 +398,9 @@ function GameState:update(dt)
             if self.pendingAction == "endRound" then
                 self:endRound()
             elseif self.pendingAction == "draw" then
-                self.deck:fillHand()
-                self:updateHandPositions()
+                self:fillHand()
+            elseif self.pendingAction == "dealInitialHand" then
+                self:dealInitialHand()
             end
             
             self.pendingAction = nil
@@ -506,35 +563,24 @@ function GameState:draw()
         end
     else
         -- Draw normal game state
-        -- Draw background
-        love.graphics.setColor(0.1, 0.1, 0.1, 1)
-        love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
-        
-        -- Draw play area
-        BasicUI.drawPlayArea(self.playArea.x, self.playArea.y, self.playArea.width, self.playArea.height)
-        
-        -- Draw waifu (moved to top right)
-        BasicUI.drawWaifu(self.corruption, love.graphics.getWidth() - 150, 100, 40)
-        
-        -- Draw played cards
-        for i, card in ipairs(self.deck.playedCards) do
-            local x = self.playArea.x + 50 + (i-1) * 130
-            local y = self.playArea.y + 50
-            BasicUI.drawCard(card, x, y, 120, 160, false)
-        end
-        
-        -- Draw hand
-        for i, card in ipairs(self.deck.hand) do
-            local x = love.graphics.getWidth()/2 - (#self.deck.hand * 45) + (i-1) * 90
-            local y = love.graphics.getHeight() - 180
-            local isSelected = false
-            for _, selected in ipairs(self.selectedCards) do
-                if selected.id == card.id then
-                    isSelected = true
-                    break
-                end
-            end
-            BasicUI.drawCard(card, x, y, 120, 160, isSelected)
+    -- Draw background
+    love.graphics.setColor(0.1, 0.1, 0.1, 1)
+    love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+    
+    -- Draw play area
+    BasicUI.drawPlayArea(self.playArea.x, self.playArea.y, self.playArea.width, self.playArea.height)
+    
+    -- Draw waifu (moved to top right)
+    BasicUI.drawWaifu(self.corruption, love.graphics.getWidth() - 150, 100, 40)
+    
+    -- Draw played cards
+    for i, card in ipairs(self.deck.playedCards) do
+            card:draw()
+    end
+    
+    -- Draw hand
+    for i, card in ipairs(self.deck.hand) do
+            card:draw()
         end
         
         -- Draw preview if cards are selected
@@ -601,7 +647,7 @@ function GameState:draw()
         love.graphics.print(string.format("Social: %.1fx", self.corruption:getMultiplier(Card.SUITS.SOCIAL)), 30, 200)
         
         -- Draw deck stats (left side, below multipliers)
-        local stats = self.deck:getDeckStats()
+    local stats = self.deck:getDeckStats()
         love.graphics.setColor(0.2, 0.2, 0.2, 1)
         love.graphics.rectangle("fill", 10, 220, 180, 100, 5)  -- Made taller for extra info
         love.graphics.setColor(1, 1, 1, 1)
@@ -611,16 +657,16 @@ function GameState:draw()
         love.graphics.print(string.format("Cards played: %d", stats.played), 20, 290)
         
         -- Draw action buttons (right side)
-        local buttonPos = BasicUI.getButtonPositions()
+    local buttonPos = BasicUI.getButtonPositions()
         local canPlay = #self.selectedCards > 0 and not self.gameOver
         local canDiscard = #self.selectedCards > 0 and not self.gameOver
-        
-        BasicUI.drawActionButtons(
-            buttonPos.play.x, buttonPos.play.y,
-            buttonPos.play.width, buttonPos.play.height,
-            canPlay, canDiscard
-        )
-        
+    
+    BasicUI.drawActionButtons(
+        buttonPos.play.x, buttonPos.play.y,
+        buttonPos.play.width, buttonPos.play.height,
+        canPlay, canDiscard
+    )
+    
         -- Draw messages
         local messageY = love.graphics.getHeight() - 150
         for _, msg in ipairs(self.messages) do
@@ -649,14 +695,66 @@ function GameState:draw()
 end
 
 function GameState:updateHandPositions()
-    local handCount = #self.deck.hand
-    local cardWidth = 120
-    local cardSpacing = 90  -- Reduced spacing to fit more cards
-    local totalWidth = (handCount - 1) * cardSpacing + cardWidth
-    local startX = love.graphics.getWidth()/2 - totalWidth/2
+    local handSize = #self.deck.hand
+    -- Sort the hand by rank
+    self.deck:sortHand()
     
+    -- Calculate positions for all cards
     for i, card in ipairs(self.deck.hand) do
-        card:setPosition(startX + (i-1) * cardSpacing, love.graphics.getHeight() - 180)
+        local targetX = (love.graphics.getWidth() / 2) + ((i - math.ceil(Deck.HAND_SIZE/2)) * 80)
+        local targetY = love.graphics.getHeight() - 150
+        
+        -- Only set position directly if card isn't being animated
+        if not card.isDealing and not card.isAnimating then
+            card:setPosition(targetX, targetY)
+        elseif card.isDealing then
+            -- Update target position for dealing animation
+            card.targetX = targetX
+            card.targetY = targetY
+        end
+    end
+end
+
+function GameState:fillHand()
+    -- Calculate how many cards we need to add
+    local currentHandSize = #self.deck.hand
+    local cardsToAdd = math.min(Deck.HAND_SIZE - currentHandSize, #self.deck.drawPile)
+    
+    if cardsToAdd > 0 then
+        -- First, animate existing cards to make room
+        self:updateHandPositions()
+        
+        -- Draw new cards and add them to hand
+        local startX = love.graphics.getWidth() + 100  -- Start off screen to the right
+        local baseY = love.graphics.getHeight() - 150  -- Base Y position for hand
+        
+        -- Draw all cards first and store them
+        local newCards = {}
+        for i = 1, cardsToAdd do
+            local card = table.remove(self.deck.drawPile, 1)
+            if card then
+                -- Add card to hand immediately so sorting works
+                table.insert(self.deck.hand, card)
+                table.insert(newCards, card)
+                
+                -- Set initial position
+                card:setPosition(startX, baseY)
+            end
+        end
+        
+        -- Sort new cards by rank for animation order
+        table.sort(newCards, function(a, b)
+            return Deck.RANK_ORDER[a.value] < Deck.RANK_ORDER[b.value]
+        end)
+        
+        -- Calculate final positions for all cards
+        self:updateHandPositions()
+        
+        -- Start animations
+        for i, card in ipairs(newCards) do
+            -- Start dealing animation with a slight delay between cards
+            card:animateDealing(card.targetX, card.targetY, (i-1) * 0.03)
+        end
     end
 end
 
@@ -670,12 +768,12 @@ function GameState:mousepressed(x, y, button)
             return
         end
     elseif not self.gameOver then
-        if button == 1 then -- Left click
+    if button == 1 then -- Left click
             -- Check for card selection (in reverse order to handle overlapping)
             local handSize = #self.deck.hand
             for i = handSize, 1, -1 do  -- Start from rightmost (top) card
                 local card = self.deck.hand[i]
-                if card:containsPoint(x, y) then
+            if card:containsPoint(x, y) then
                     -- Found the topmost card that was clicked
                     -- Toggle card selection
                     local isSelected = false
@@ -683,12 +781,14 @@ function GameState:mousepressed(x, y, button)
                         if selected.id == card.id then
                             table.remove(self.selectedCards, j)
                             isSelected = true
-                            break
-                        end
-                    end
-                    
+                break
+            end
+        end
+        
                     if not isSelected then
                         table.insert(self.selectedCards, card)
+                        -- Play note for card value when selected
+                        BasicAudio.playCardNote(card.value)
                     end
                     
                     card:setHighlight(not isSelected)
@@ -723,21 +823,25 @@ function GameState:keypressed(key)
         end
     elseif self.gameOver then
         if key == "space" then
-            -- Reset game
-            self.deck = Deck.new()
-            self.corruption = Corruption.new()
-            self.runManager = RunManager.new()
-            self.selectedCards = {}
-            self.currentScore = 0
-            self.messages = {}
-            self.gameOver = false
-            self:startNewRound()
+            -- Return to menu instead of resetting game
+            changeState("menu")
         end
     else
-        if key == "space" then
+    if key == "space" then
             self:playSelectedCards()
-        elseif key == "d" then
+    elseif key == "d" then
             self:discardSelectedCards()
+        end
+    end
+end
+
+-- Track corruption changes and play sound when it increases
+function GameState:checkCorruptionChange(oldValues, newValues)
+    for suit, newValue in pairs(newValues) do
+        local oldValue = oldValues[suit] or 0
+        if Corruption.getLevel(newValue) > Corruption.getLevel(oldValue) then
+                BasicAudio.play("CORRUPTION")
+            break  -- Only play sound once even if multiple suits increase
         end
     end
 end
